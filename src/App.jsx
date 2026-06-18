@@ -1,13 +1,10 @@
 import{useState,useRef,useEffect}from"react";
-// Supabase接続
-const _env=(k)=>{try{return import.meta.env[k]||"";}catch(e){return "";}};
-const SB_URL=_env("VITE_SUPABASE_URL");
-const SB_KEY=_env("VITE_SUPABASE_ANON_KEY");
-const SB=!!(SB_URL&&SB_KEY);
-const _h=()=>({"apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY,"Content-Type":"application/json","Prefer":"resolution=merge-duplicates,return=minimal"});
-const sbGet=async(t)=>{if(!SB)return[];const r=await fetch(SB_URL+"/rest/v1/"+t+"?select=*",{headers:{"apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY}});return r.ok?(await r.json()):[];};
-const sbUp=async(t,rows)=>{if(!SB||!rows||!rows.length)return;await fetch(SB_URL+"/rest/v1/"+t,{method:"POST",headers:_h(),body:JSON.stringify(rows)});};
-const sbDel=async(t,w)=>{if(!SB)return;await fetch(SB_URL+"/rest/v1/"+t+"?"+w,{method:"DELETE",headers:_h()});};
+const _e=(k)=>{try{return import.meta.env[k]||"";}catch(e){return "";}};
+const SB_URL=_e("VITE_SUPABASE_URL"),SB_KEY=_e("VITE_SUPABASE_ANON_KEY"),SB=!!(SB_URL&&SB_KEY);
+const _h={get:{"apikey":"","Authorization":""},post:{"Content-Type":"application/json","Prefer":"resolution=merge-duplicates,return=minimal"}};
+const sbGet=async(t)=>{if(!SB)return[];try{const r=await fetch(SB_URL+"/rest/v1/"+t+"?select=*",{headers:{"apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY}});return r.ok?await r.json():[];}catch(e){return[];}};
+const sbUp=async(t,rows)=>{if(!SB||!rows||!rows.length)return;try{await fetch(SB_URL+"/rest/v1/"+t,{method:"POST",headers:{"apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY,"Content-Type":"application/json","Prefer":"resolution=merge-duplicates,return=minimal"},body:JSON.stringify(rows)});}catch(e){console.error(e);}};
+const sbDel=async(t,w)=>{if(!SB)return;try{await fetch(SB_URL+"/rest/v1/"+t+"?"+w,{method:"DELETE",headers:{"apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY}});}catch(e){console.error(e);}};
 
 
 
@@ -243,47 +240,21 @@ export default function App(){
   const [pub,setPR]=useState(()=>ld("v13_pb",DEMO.pub||[]));
   const [pats,setPatsR]=useState(()=>ld("v13_pt",DEFAULT_PT));
   const [notifs,setNotifsR]=useState(()=>ld("v13_nf",DEFAULT_NOTIFS));
-  };  const setMembers=mk("v13_mb",setMR),setShifts=mk("v13_sh",setSR),setReqs=mk("v13_rq",setRR);
+  const _save=(k,d)=>{if(!SB)return;setTimeout(async()=>{try{
+    if(k==="v13_mb"){await sbDel("members","id=neq.x");await sbUp("members",d.map((m,i)=>({id:m.id,name:m.name,tier:m.tier,sort_order:i})));}
+    else if(k==="v13_sh"){await sbDel("shifts","id=neq.x");const rows=Object.entries(d).map(([key,v])=>{const i=key.indexOf("_");return{id:key,mb_id:key.slice(0,i),date:key.slice(i+1),pattern:v.pattern||null,st:v.st||null,en:v.en||null,b:v.b||null};});await sbUp("shifts",rows);}
+    else if(k==="v13_rq"){await sbDel("reqs","id=gte.0");await sbUp("reqs",d);}
+    else if(k==="v13_ch"){await sbDel("changes","id=gte.0");await sbUp("changes",d.map(c=>({id:c.id,data:c})));}
+    else if(k==="v13_dp"){await sbDel("day_pat","date=neq.x");await sbUp("day_pat",Object.entries(d).map(([date,pat])=>({date,pat:pat||""})));}
+    else if(k==="v13_dm"){await sbDel("day_memo","date=neq.x");await sbUp("day_memo",Object.entries(d).map(([date,memo])=>({date,memo})));}
+    else if(k==="v13_pb"){await sbDel("pub_months","ym=neq.x");await sbUp("pub_months",d.map(ym=>({ym})));}
+  }catch(e){console.error("save:",k,e);}},100);};
+  const mk=(k,raw)=>v=>{if(typeof v==="function"){raw(prev=>{const n=v(prev);sv(k,n);_save(k,n);return n;});}else{sv(k,v);raw(v);_save(k,v);}};
+  const setMembers=mk("v13_mb",setMR),setShifts=mk("v13_sh",setSR),setReqs=mk("v13_rq",setRR);
   const setChanges=mk("v13_ch",setCR),setDayPat=mk("v13_dp",setDP),setDayMemo=mk("v13_dm",setDM);
   const setPub=mk("v13_pb",setPR),setPats=mk("v13_pt",setPatsR),setNotifs=mk("v13_nf",setNotifsR);
   const toast_=(msg,type)=>{setToast({msg,type:type||"ok"});setTimeout(()=>setToast(null),3200);};
 
-  // Supabaseからデータ読み込み
-  useEffect(()=>{
-    const load=async()=>{
-      try{
-        const [mbs,shs,rqs,chs,dps,dms,pbs]=await Promise.all([
-          dbAll("members"),dbAll("shifts"),dbAll("reqs"),dbAll("changes"),
-          dbAll("day_pat"),dbAll("day_memo"),dbAll("pub_months")
-        ]);
-        if(mbs&&mbs.length)setMR(mbs.map(m=>({id:m.id,name:m.name,tier:m.tier})).sort((a,b)=>(a.sort_order||0)-(b.sort_order||0)));
-        if(shs&&shs.length){const o={};shs.forEach(s=>{o[`${s.mb_id}_${s.date}`]={pattern:s.pattern,st:s.st,en:s.en,b:s.b};});setSR(o);}
-        if(rqs&&rqs.length)setRR(rqs);
-        if(chs&&chs.length)setCR(chs.map(c=>c.data));
-        if(dps&&dps.length){const o={};dps.forEach(d=>{o[d.date]=d.pat;});setDP(o);}
-        if(dms&&dms.length){const o={};dms.forEach(d=>{o[d.date]=d.memo;});setDM(o);}
-        if(pbs&&pbs.length)setPR(pbs.map(p=>p.ym));
-      }catch(e){console.log("DB読み込みエラー（デモモードで動作）",e);}
-    };
-    if(SUPABASE_URL&&SUPABASE_KEY)load();
-  },[]);
-
-  useEffect(()=>{
-    if(!SB)return;
-    (async()=>{
-      try{
-        const[mbs,shs,rqs,chs,dps,dms,pbs]=await Promise.all([sbGet("members"),sbGet("shifts"),sbGet("reqs"),sbGet("changes"),sbGet("day_pat"),sbGet("day_memo"),sbGet("pub_months")]);
-        if(mbs.length)setMR([...mbs].sort((a,b)=>(a.sort_order||0)-(b.sort_order||0)).map(m=>({id:m.id,name:m.name,tier:m.tier})));
-        if(shs.length){const o={};shs.forEach(s=>{o[s.mb_id+"_"+s.date]={pattern:s.pattern,st:s.st,en:s.en,b:s.b};});setSR(o);}
-        if(rqs.length)setRR(rqs);
-        if(chs.length)setCR(chs.map(c=>c.data));
-        if(dps.length){const o={};dps.forEach(d=>{o[d.date]=d.pat;});setDP(o);}
-        if(dms.length){const o={};dms.forEach(d=>{o[d.date]=d.memo;});setDM(o);}
-        if(pbs.length)setPR(pbs.map(p=>p.ym));
-        console.log("loaded from Supabase");
-      }catch(e){console.error("load error:",e);}
-    })();
-  },[]);
   const unlock=()=>{if(pwIn===PW){setAdmin(true);setTab("admin");setPwM(false);setPwIn("");setPwErr(false);toast_("ログインしました");}else setPwErr(true);};
   const DY=today.getFullYear(),DM=today.getMonth()+1;
   const NM=DM===12?1:DM+1,NY=DM===12?DY+1:DY;
