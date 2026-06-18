@@ -1308,4 +1308,3 @@ function SettingsPage({pats,setPats,notifs,setNotifs,toast_}){
     </div>)}
   </div>);
 }
-
