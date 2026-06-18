@@ -1,19 +1,31 @@
 import{useState,useRef,useEffect}from"react";
 
-// Supabase接続
-const SUPABASE_URL=import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_KEY=import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supa=async(path,opts={})=>{
+// Supabase接続（Vite環境のみ有効・Artifact環境では無効）
+let SUPABASE_URL="";
+let SUPABASE_KEY="";
+try{
+  SUPABASE_URL=import.meta.env.VITE_SUPABASE_URL||"";
+  SUPABASE_KEY=import.meta.env.VITE_SUPABASE_ANON_KEY||"";
+}catch(e){}
+const supaFetch=async(path,opts={})=>{
   const r=await fetch(`${SUPABASE_URL}/rest/v1/${path}`,{
-    headers:{"apikey":SUPABASE_KEY,"Authorization":`Bearer ${SUPABASE_KEY}`,"Content-Type":"application/json","Prefer":"return=representation",...(opts.headers||{})},
+    headers:{"apikey":SUPABASE_KEY,"Authorization":`Bearer ${SUPABASE_KEY}`,"Content-Type":"application/json","Prefer":"return=minimal",...(opts.headers||{})},
     ...opts
   });
-  if(!r.ok)throw new Error(await r.text());
+  if(!r.ok){const t=await r.text();console.error("Supabase error:",t);throw new Error(t);}
   const t=await r.text();return t?JSON.parse(t):null;
 };
-const dbGet=async(table)=>supa(table+"?select=*");
-const dbUpsert=async(table,data)=>supa(table,{method:"POST",headers:{"Prefer":"resolution=merge-duplicates"},body:JSON.stringify(data)});
-const dbDelete=async(table,col,val)=>supa(`${table}?${col}=eq.${val}`,{method:"DELETE"});
+const dbAll=async(table)=>{
+  const r=await fetch(`${SUPABASE_URL}/rest/v1/${table}?select=*`,{
+    headers:{"apikey":SUPABASE_KEY,"Authorization":`Bearer ${SUPABASE_KEY}`}
+  });
+  const t=await r.text();return t?JSON.parse(t):[];
+};
+const dbUpsert=async(table,rows)=>{
+  if(!rows||!rows.length)return;
+  await supaFetch(table,{method:"POST",headers:{"Prefer":"resolution=merge-duplicates,return=minimal"},body:JSON.stringify(rows)});
+};
+const dbDeleteAll=async(table,where)=>supaFetch(`${table}?${where}`,{method:"DELETE"});
 // ══ 重要仕様（削除・変更禁止） ══════════════════════
 // ① 確定シフト：未公開月でも確定データがあれば一般ユーザーに表示
 // ② シフトチェンジ取り消し：名前選択モーダルで本人確認（投稿者以外エラー）
@@ -255,31 +267,32 @@ export default function App(){
     if(!SUPABASE_URL||!SUPABASE_KEY)return;
     try{
       if(key==="v13_mb"){
-        await supa("members?id=neq.null",{method:"DELETE"});
-        if(data.length)await dbUpsert("members",data.map((m,i)=>({id:m.id,name:m.name,tier:m.tier,sort_order:i})));
+        await dbDeleteAll("members","id=neq.____");
+        if(data&&data.length)await dbUpsert("members",data.map((m,i)=>({id:m.id,name:m.name,tier:m.tier,sort_order:i})));
       }else if(key==="v13_sh"){
-        await supa("shifts?id=neq.null",{method:"DELETE"});
-        const rows=Object.entries(data).map(([k,v])=>{const[mb_id,date]=k.split("_");return{id:k,mb_id,date,pattern:v.pattern||null,st:v.st||null,en:v.en||null,b:v.b||null};});
+        await dbDeleteAll("shifts","id=neq.____");
+        const rows=Object.entries(data).map(([k,v])=>{const idx=k.indexOf("_");const mb_id=k.slice(0,idx);const date=k.slice(idx+1);return{id:k,mb_id,date,pattern:v.pattern||null,st:v.st||null,en:v.en||null,b:v.b||null};});
         if(rows.length)await dbUpsert("shifts",rows);
       }else if(key==="v13_rq"){
-        await supa("reqs?id=gte.0",{method:"DELETE"});
-        if(data.length)await dbUpsert("reqs",data);
+        await dbDeleteAll("reqs","id=gte.0");
+        if(data&&data.length)await dbUpsert("reqs",data);
       }else if(key==="v13_ch"){
-        await supa("changes?id=gte.0",{method:"DELETE"});
-        if(data.length)await dbUpsert("changes",data.map(c=>({id:c.id,data:c})));
+        await dbDeleteAll("changes","id=gte.0");
+        if(data&&data.length)await dbUpsert("changes",data.map(c=>({id:c.id,data:c})));
       }else if(key==="v13_dp"){
-        await supa("day_pat?date=neq.null",{method:"DELETE"});
+        await dbDeleteAll("day_pat","date=neq.____");
         const rows=Object.entries(data).map(([date,pat])=>({date,pat:pat||""}));
         if(rows.length)await dbUpsert("day_pat",rows);
       }else if(key==="v13_dm"){
-        await supa("day_memo?date=neq.null",{method:"DELETE"});
+        await dbDeleteAll("day_memo","date=neq.____");
         const rows=Object.entries(data).map(([date,memo])=>({date,memo}));
         if(rows.length)await dbUpsert("day_memo",rows);
       }else if(key==="v13_pb"){
-        await supa("pub_months?ym=neq.null",{method:"DELETE"});
-        if(data.length)await dbUpsert("pub_months",data.map(ym=>({ym})));
+        await dbDeleteAll("pub_months","ym=neq.____");
+        if(data&&data.length)await dbUpsert("pub_months",data.map(ym=>({ym})));
       }
-    }catch(e){console.log("DB保存エラー",e);}
+      console.log("DB保存完了:",key);
+    }catch(e){console.error("DB保存エラー",key,e);}
   };  const setMembers=mk("v13_mb",setMR),setShifts=mk("v13_sh",setSR),setReqs=mk("v13_rq",setRR);
   const setChanges=mk("v13_ch",setCR),setDayPat=mk("v13_dp",setDP),setDayMemo=mk("v13_dm",setDM);
   const setPub=mk("v13_pb",setPR),setPats=mk("v13_pt",setPatsR),setNotifs=mk("v13_nf",setNotifsR);
@@ -290,8 +303,8 @@ export default function App(){
     const load=async()=>{
       try{
         const [mbs,shs,rqs,chs,dps,dms,pbs]=await Promise.all([
-          dbGet("members"),dbGet("shifts"),dbGet("reqs"),dbGet("changes"),
-          dbGet("day_pat"),dbGet("day_memo"),dbGet("pub_months")
+          dbAll("members"),dbAll("shifts"),dbAll("reqs"),dbAll("changes"),
+          dbAll("day_pat"),dbAll("day_memo"),dbAll("pub_months")
         ]);
         if(mbs&&mbs.length)setMR(mbs.map(m=>({id:m.id,name:m.name,tier:m.tier})).sort((a,b)=>(a.sort_order||0)-(b.sort_order||0)));
         if(shs&&shs.length){const o={};shs.forEach(s=>{o[`${s.mb_id}_${s.date}`]={pattern:s.pattern,st:s.st,en:s.en,b:s.b};});setSR(o);}
