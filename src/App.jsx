@@ -1,31 +1,41 @@
 import{useState,useRef,useEffect}from"react";
 
-// Supabase接続（Vite環境のみ有効・Artifact環境では無効）
-let SUPABASE_URL="";
-let SUPABASE_KEY="";
-try{
-  SUPABASE_URL=import.meta.env.VITE_SUPABASE_URL||"";
-  SUPABASE_KEY=import.meta.env.VITE_SUPABASE_ANON_KEY||"";
-}catch(e){}
-const supaFetch=async(path,opts={})=>{
-  const r=await fetch(`${SUPABASE_URL}/rest/v1/${path}`,{
-    headers:{"apikey":SUPABASE_KEY,"Authorization":`Bearer ${SUPABASE_KEY}`,"Content-Type":"application/json","Prefer":"return=minimal",...(opts.headers||{})},
-    ...opts
-  });
-  if(!r.ok){const t=await r.text();console.error("Supabase error:",t);throw new Error(t);}
+// Supabase設定（Vercel環境変数から取得）
+const _env=(k)=>{try{return import.meta.env[k]||"";}catch(e){return "";}};
+const SB_URL=_env("VITE_SUPABASE_URL");
+const SB_KEY=_env("VITE_SUPABASE_ANON_KEY");
+const SB_ON=!!(SB_URL&&SB_KEY);
+
+// クリップボードコピー（どの環境でも動く）
+const copyText=(text)=>{
+  if(navigator.clipboard&&window.isSecureContext){
+    navigator.clipboard.writeText(text).catch(()=>_fallbackCopy(text));
+  }else{_fallbackCopy(text);}
+};
+const _fallbackCopy=(text)=>{
+  const el=document.createElement("textarea");
+  el.value=text;
+  el.style.cssText="position:fixed;left:-9999px;top:-9999px";
+  document.body.appendChild(el);
+  el.focus();el.select();
+  try{document.execCommand("copy");}catch(e){}
+  document.body.removeChild(el);
+};
+
+// Supabase REST API
+const _sbFetch=async(path,method,body)=>{
+  if(!SB_ON)return null;
+  const opts={method:method||"GET",headers:{"apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY,"Content-Type":"application/json","Prefer":"resolution=merge-duplicates,return=minimal"}};
+  if(body)opts.body=JSON.stringify(body);
+  const r=await fetch(SB_URL+"/rest/v1/"+path,opts);
+  if(!r.ok){console.error("Supabase error:",r.status,await r.text());return null;}
   const t=await r.text();return t?JSON.parse(t):null;
 };
-const dbAll=async(table)=>{
-  const r=await fetch(`${SUPABASE_URL}/rest/v1/${table}?select=*`,{
-    headers:{"apikey":SUPABASE_KEY,"Authorization":`Bearer ${SUPABASE_KEY}`}
-  });
-  const t=await r.text();return t?JSON.parse(t):[];
-};
-const dbUpsert=async(table,rows)=>{
-  if(!rows||!rows.length)return;
-  await supaFetch(table,{method:"POST",headers:{"Prefer":"resolution=merge-duplicates,return=minimal"},body:JSON.stringify(rows)});
-};
-const dbDeleteAll=async(table,where)=>supaFetch(`${table}?${where}`,{method:"DELETE"});
+const sbSelect=async(table)=>_sbFetch(table+"?select=*","GET");
+const sbUpsert=async(table,rows)=>{if(!rows||!rows.length)return;return _sbFetch(table,"POST",rows);};
+const sbDelete=async(table,filter)=>_sbFetch(table+"?"+filter,"DELETE");
+
+
 // ══ 重要仕様（削除・変更禁止） ══════════════════════
 // ① 確定シフト：未公開月でも確定データがあれば一般ユーザーに表示
 // ② シフトチェンジ取り消し：名前選択モーダルで本人確認（投稿者以外エラー）
@@ -113,19 +123,7 @@ const callAI=async(prompt,max)=>{
 // showSend=true の画面のみ「送信」ボタンを表示
 function SlkPreview({msg,setMsg,dest,loading,onClose,showSend}){
   if(!loading&&!msg)return null;
-  const copy=()=>{
-    const text=msg||"";
-    if(navigator.clipboard&&navigator.clipboard.writeText){
-      navigator.clipboard.writeText(text).catch(()=>fallbackCopy(text));
-    }else{fallbackCopy(text);}
-  };
-  const fallbackCopy=(text)=>{
-    const el=document.createElement("textarea");
-    el.value=text;el.style.position="fixed";el.style.opacity="0";
-    document.body.appendChild(el);el.select();
-    try{document.execCommand("copy");}catch(e){}
-    document.body.removeChild(el);
-  };
+  const copy=()=>{copyText(msg||"")};
   return(<div className="card" style={{marginBottom:10,borderColor:"#bfdbfe"}}>
     <div style={{fontSize:11,color:"#64748b",marginBottom:4}}>💬 {dest}</div>
     {loading
@@ -269,35 +267,41 @@ export default function App(){
   const [pub,setPR]=useState(()=>ld("v13_pb",DEMO.pub||[]));
   const [pats,setPatsR]=useState(()=>ld("v13_pt",DEFAULT_PT));
   const [notifs,setNotifsR]=useState(()=>ld("v13_nf",DEFAULT_NOTIFS));
+  // データ変更時にSupabaseに保存
   const mk=(k,raw)=>v=>{
-    if(typeof v==="function"){raw(prev=>{const n=v(prev);sv(k,n);saveToDb(k,n);return n;});}
-    else{sv(k,v);raw(v);saveToDb(k,v);}
+    if(typeof v==="function"){raw(prev=>{const n=v(prev);sv(k,n);if(SB_ON)_saveToDb(k,n);return n;});}
+    else{sv(k,v);raw(v);if(SB_ON)_saveToDb(k,v);}
   };
-
-  // Supabaseへの保存処理（UPSERTのみ・削除なし）
-  const saveToDb=async(key,data)=>{
-    if(!SUPABASE_URL||!SUPABASE_KEY)return;
+  const _saveToDb=async(key,data)=>{
     try{
       if(key==="v13_mb"){
-        if(data&&data.length)await dbUpsert("members",data.map((m,i)=>({id:m.id,name:m.name,tier:m.tier,sort_order:i})));
+        await sbDelete("members","id=neq.XXXX");
+        await sbUpsert("members",data.map((m,i)=>({id:m.id,name:m.name,tier:m.tier,sort_order:i})));
       }else if(key==="v13_sh"){
-        const rows=Object.entries(data).map(([k,v])=>{const idx=k.indexOf("_");const mb_id=k.slice(0,idx);const date=k.slice(idx+1);return{id:k,mb_id,date,pattern:v.pattern||null,st:v.st||null,en:v.en||null,b:v.b||null};});
-        if(rows.length)await dbUpsert("shifts",rows);
+        await sbDelete("shifts","id=neq.XXXX");
+        const rows=Object.entries(data).map(([k,v])=>{
+          const idx=k.indexOf("_");
+          return{id:k,mb_id:k.slice(0,idx),date:k.slice(idx+1),pattern:v.pattern||null,st:v.st||null,en:v.en||null,b:v.b||null};
+        });
+        await sbUpsert("shifts",rows);
       }else if(key==="v13_rq"){
-        if(data&&data.length)await dbUpsert("reqs",data);
+        await sbDelete("reqs","id=gte.0");
+        await sbUpsert("reqs",data);
       }else if(key==="v13_ch"){
-        if(data&&data.length)await dbUpsert("changes",data.map(c=>({id:c.id,data:c})));
+        await sbDelete("changes","id=gte.0");
+        await sbUpsert("changes",data.map(c=>({id:c.id,data:c})));
       }else if(key==="v13_dp"){
-        const rows=Object.entries(data).map(([date,pat])=>({date,pat:pat||""}));
-        if(rows.length)await dbUpsert("day_pat",rows);
+        await sbDelete("day_pat","date=neq.XXXX");
+        await sbUpsert("day_pat",Object.entries(data).map(([date,pat])=>({date,pat:pat||""})));
       }else if(key==="v13_dm"){
-        const rows=Object.entries(data).map(([date,memo])=>({date,memo}));
-        if(rows.length)await dbUpsert("day_memo",rows);
+        await sbDelete("day_memo","date=neq.XXXX");
+        await sbUpsert("day_memo",Object.entries(data).map(([date,memo])=>({date,memo})));
       }else if(key==="v13_pb"){
-        if(data&&data.length)await dbUpsert("pub_months",data.map(ym=>({ym})));
+        await sbDelete("pub_months","ym=neq.XXXX");
+        await sbUpsert("pub_months",data.map(ym=>({ym})));
       }
-      console.log("DB保存完了:",key);
-    }catch(e){console.error("DB保存エラー",key,e);}
+    }catch(e){console.error("DB保存エラー:",key,e);}
+  };
   };  const setMembers=mk("v13_mb",setMR),setShifts=mk("v13_sh",setSR),setReqs=mk("v13_rq",setRR);
   const setChanges=mk("v13_ch",setCR),setDayPat=mk("v13_dp",setDP),setDayMemo=mk("v13_dm",setDM);
   const setPub=mk("v13_pb",setPR),setPats=mk("v13_pt",setPatsR),setNotifs=mk("v13_nf",setNotifsR);
@@ -857,7 +861,7 @@ function AdjustPage({members,setMembers,shifts,setShifts,reqs,dayPat,setDayPat,d
         </div>
         <div className="mf">
           <button className="btn bg" onClick={()=>setShModal(false)}>キャンセル</button>
-          <button className="btn bp" disabled={!shMsg} onClick={()=>{(()=>{const _t=shMsg;if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(_t).catch(()=>{const _e=document.createElement("textarea");_e.value=_t;_e.style.cssText="position:fixed;opacity:0";document.body.appendChild(_e);_e.select();try{document.execCommand("copy");}catch(ex){}document.body.removeChild(_e);});}else{const _e=document.createElement("textarea");_e.value=_t;_e.style.cssText="position:fixed;opacity:0";document.body.appendChild(_e);_e.select();try{document.execCommand("copy");}catch(ex){}document.body.removeChild(_e);}})(toast_("送信しました");setShModal(false);}}>送信</button>
+          <button className="btn bp" disabled={!shMsg} onClick={()=>{copyText(shMsg)toast_("送信しました");setShModal(false);}}>送信</button>
         </div>
       </div>
     </div>)}
@@ -883,7 +887,7 @@ function AdjustPage({members,setMembers,shifts,setShifts,reqs,dayPat,setDayPat,d
             <div className="mf">
               <button className="btn bg" onClick={()=>setSelNotif(null)}>← 戻る</button>
               <button className="btn bg" onClick={()=>setNotifModal(false)}>キャンセル</button>
-              <button className="btn bp" onClick={()=>{(()=>{const _t=notifMsg;if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(_t).catch(()=>{const _e=document.createElement("textarea");_e.value=_t;_e.style.cssText="position:fixed;opacity:0";document.body.appendChild(_e);_e.select();try{document.execCommand("copy");}catch(ex){}document.body.removeChild(_e);});}else{const _e=document.createElement("textarea");_e.value=_t;_e.style.cssText="position:fixed;opacity:0";document.body.appendChild(_e);_e.select();try{document.execCommand("copy");}catch(ex){}document.body.removeChild(_e);}})(toast_("送信しました");setNotifModal(false);}}>送信</button>
+              <button className="btn bp" onClick={()=>{copyText(notifMsg)toast_("送信しました");setNotifModal(false);}}>送信</button>
             </div>
           </>
         )}
@@ -949,7 +953,7 @@ function ChangePage({changes,setChanges,shifts,members,pats,isAdmin,toast_}){
         </div>
         <div className="mf">
           <button className="btn bg" onClick={()=>{setShowSlk(false);setSlkM(null);}}>閉じる</button>
-          <button className="btn bp" onClick={()=>{(()=>{const _t=slkM||"";if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(_t).catch(()=>{const _e=document.createElement("textarea");_e.value=_t;_e.style.cssText="position:fixed;opacity:0";document.body.appendChild(_e);_e.select();try{document.execCommand("copy");}catch(ex){}document.body.removeChild(_e);});}else{const _e=document.createElement("textarea");_e.value=_t;_e.style.cssText="position:fixed;opacity:0";document.body.appendChild(_e);_e.select();try{document.execCommand("copy");}catch(ex){}document.body.removeChild(_e);}})(toast_("送信しました");setShowSlk(false);setSlkM(null);}}>送信</button>
+          <button className="btn bp" onClick={()=>{copyText(slkM||"")toast_("送信しました");setShowSlk(false);setSlkM(null);}}>送信</button>
         </div>
       </div>
     </div>)}
