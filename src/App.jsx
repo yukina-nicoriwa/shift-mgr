@@ -1,10 +1,33 @@
 import{useState,useRef,useEffect}from"react";
-const _e=(k)=>{try{return import.meta.env[k]||"";}catch(e){return "";}};
-const SB_URL=_e("VITE_SUPABASE_URL"),SB_KEY=_e("VITE_SUPABASE_ANON_KEY"),SB=!!(SB_URL&&SB_KEY);
-const _h={get:{"apikey":"","Authorization":""},post:{"Content-Type":"application/json","Prefer":"resolution=merge-duplicates,return=minimal"}};
-const sbGet=async(t)=>{if(!SB)return[];try{const r=await fetch(SB_URL+"/rest/v1/"+t+"?select=*",{headers:{"apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY}});return r.ok?await r.json():[];}catch(e){return[];}};
-const sbUp=async(t,rows)=>{if(!SB||!rows||!rows.length)return;try{await fetch(SB_URL+"/rest/v1/"+t,{method:"POST",headers:{"apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY,"Content-Type":"application/json","Prefer":"resolution=merge-duplicates,return=minimal"},body:JSON.stringify(rows)});}catch(e){console.error(e);}};
-const sbDel=async(t,w)=>{if(!SB)return;try{await fetch(SB_URL+"/rest/v1/"+t+"?"+w,{method:"DELETE",headers:{"apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY}});}catch(e){console.error(e);}};
+import{createClient}from"@supabase/supabase-js";
+
+// Supabase接続（公式ライブラリ使用）
+const SB_URL=import.meta.env.VITE_SUPABASE_URL||"";
+const SB_KEY=import.meta.env.VITE_SUPABASE_ANON_KEY||"";
+const supabase=SB_URL&&SB_KEY?createClient(SB_URL,SB_KEY):null;
+
+// データ操作ヘルパー
+const dbGet=async(table)=>{
+  if(!supabase)return[];
+  const{data,error}=await supabase.from(table).select("*");
+  if(error){console.error("dbGet error:",table,error);return[];}
+  return data||[];
+};
+const dbUpsert=async(table,rows)=>{
+  if(!supabase||!rows||!rows.length)return;
+  const{error}=await supabase.from(table).upsert(rows);
+  if(error)console.error("dbUpsert error:",table,error);
+};
+const dbDeleteAll=async(table)=>{
+  if(!supabase)return;
+  const{error}=await supabase.from(table).delete().neq("id","____");
+  if(error)console.error("dbDelete error:",table,error);
+};
+const dbDeleteAllStr=async(table,col)=>{
+  if(!supabase)return;
+  const{error}=await supabase.from(table).delete().neq(col,"____");
+  if(error)console.error("dbDelete error:",table,error);
+};
 
 
 
@@ -240,16 +263,41 @@ export default function App(){
   const [pub,setPR]=useState(()=>ld("v13_pb",DEMO.pub||[]));
   const [pats,setPatsR]=useState(()=>ld("v13_pt",DEFAULT_PT));
   const [notifs,setNotifsR]=useState(()=>ld("v13_nf",DEFAULT_NOTIFS));
-  const _save=(k,d)=>{if(!SB)return;setTimeout(async()=>{try{
-    if(k==="v13_mb"){await sbDel("members","id=neq.x");await sbUp("members",d.map((m,i)=>({id:m.id,name:m.name,tier:m.tier,sort_order:i})));}
-    else if(k==="v13_sh"){await sbDel("shifts","id=neq.x");const rows=Object.entries(d).map(([key,v])=>{const i=key.indexOf("_");return{id:key,mb_id:key.slice(0,i),date:key.slice(i+1),pattern:v.pattern||null,st:v.st||null,en:v.en||null,b:v.b||null};});await sbUp("shifts",rows);}
-    else if(k==="v13_rq"){await sbDel("reqs","id=gte.0");await sbUp("reqs",d);}
-    else if(k==="v13_ch"){await sbDel("changes","id=gte.0");await sbUp("changes",d.map(c=>({id:c.id,data:c})));}
-    else if(k==="v13_dp"){await sbDel("day_pat","date=neq.x");await sbUp("day_pat",Object.entries(d).map(([date,pat])=>({date,pat:pat||""})));}
-    else if(k==="v13_dm"){await sbDel("day_memo","date=neq.x");await sbUp("day_memo",Object.entries(d).map(([date,memo])=>({date,memo})));}
-    else if(k==="v13_pb"){await sbDel("pub_months","ym=neq.x");await sbUp("pub_months",d.map(ym=>({ym})));}
-  }catch(e){console.error("save:",k,e);}},100);};
-  const mk=(k,raw)=>v=>{if(typeof v==="function"){raw(prev=>{const n=v(prev);sv(k,n);_save(k,n);return n;});}else{sv(k,v);raw(v);_save(k,v);}};
+  const _save=async(k,d)=>{
+    if(!supabase)return;
+    try{
+      if(k==="v13_mb"){
+        await supabase.from("members").delete().neq("id","____");
+        if(d.length)await dbUpsert("members",d.map((m,i)=>({id:m.id,name:m.name,tier:m.tier,sort_order:i})));
+      }else if(k==="v13_sh"){
+        await supabase.from("shifts").delete().neq("id","____");
+        const rows=Object.entries(d).map(([key,v])=>{const i=key.indexOf("_");return{id:key,mb_id:key.slice(0,i),date:key.slice(i+1),pattern:v.pattern||null,st:v.st||null,en:v.en||null,b:v.b||null};});
+        if(rows.length)await dbUpsert("shifts",rows);
+      }else if(k==="v13_rq"){
+        await supabase.from("reqs").delete().gte("id",0);
+        if(d.length)await dbUpsert("reqs",d);
+      }else if(k==="v13_ch"){
+        await supabase.from("changes").delete().gte("id",0);
+        if(d.length)await dbUpsert("changes",d.map(c=>({id:c.id,data:c})));
+      }else if(k==="v13_dp"){
+        await supabase.from("day_pat").delete().neq("date","____");
+        const rows=Object.entries(d).map(([date,pat])=>({date,pat:pat||""}));
+        if(rows.length)await dbUpsert("day_pat",rows);
+      }else if(k==="v13_dm"){
+        await supabase.from("day_memo").delete().neq("date","____");
+        const rows=Object.entries(d).map(([date,memo])=>({date,memo}));
+        if(rows.length)await dbUpsert("day_memo",rows);
+      }else if(k==="v13_pb"){
+        await supabase.from("pub_months").delete().neq("ym","____");
+        if(d.length)await dbUpsert("pub_months",d.map(ym=>({ym})));
+      }
+      console.log("saved:",k);
+    }catch(e){console.error("save error:",k,e);}
+  };
+  const mk=(k,raw)=>v=>{
+    if(typeof v==="function"){raw(prev=>{const n=v(prev);sv(k,n);setTimeout(()=>_save(k,n),0);return n;});}
+    else{sv(k,v);raw(v);setTimeout(()=>_save(k,v),0);}
+  };
   const setMembers=mk("v13_mb",setMR),setShifts=mk("v13_sh",setSR),setReqs=mk("v13_rq",setRR);
   const setChanges=mk("v13_ch",setCR),setDayPat=mk("v13_dp",setDP),setDayMemo=mk("v13_dm",setDM);
   const setPub=mk("v13_pb",setPR),setPats=mk("v13_pt",setPatsR),setNotifs=mk("v13_nf",setNotifsR);
