@@ -113,7 +113,19 @@ const callAI=async(prompt,max)=>{
 // showSend=true の画面のみ「送信」ボタンを表示
 function SlkPreview({msg,setMsg,dest,loading,onClose,showSend}){
   if(!loading&&!msg)return null;
-  const copy=()=>{try{if(navigator.clipboard)navigator.clipboard.writeText(msg||"");}catch(e){}};
+  const copy=()=>{
+    const text=msg||"";
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).catch(()=>fallbackCopy(text));
+    }else{fallbackCopy(text);}
+  };
+  const fallbackCopy=(text)=>{
+    const el=document.createElement("textarea");
+    el.value=text;el.style.position="fixed";el.style.opacity="0";
+    document.body.appendChild(el);el.select();
+    try{document.execCommand("copy");}catch(e){}
+    document.body.removeChild(el);
+  };
   return(<div className="card" style={{marginBottom:10,borderColor:"#bfdbfe"}}>
     <div style={{fontSize:11,color:"#64748b",marginBottom:4}}>💬 {dest}</div>
     {loading
@@ -262,33 +274,26 @@ export default function App(){
     else{sv(k,v);raw(v);saveToDb(k,v);}
   };
 
-  // Supabaseへの保存処理
+  // Supabaseへの保存処理（UPSERTのみ・削除なし）
   const saveToDb=async(key,data)=>{
     if(!SUPABASE_URL||!SUPABASE_KEY)return;
     try{
       if(key==="v13_mb"){
-        await dbDeleteAll("members","id=neq.____");
         if(data&&data.length)await dbUpsert("members",data.map((m,i)=>({id:m.id,name:m.name,tier:m.tier,sort_order:i})));
       }else if(key==="v13_sh"){
-        await dbDeleteAll("shifts","id=neq.____");
         const rows=Object.entries(data).map(([k,v])=>{const idx=k.indexOf("_");const mb_id=k.slice(0,idx);const date=k.slice(idx+1);return{id:k,mb_id,date,pattern:v.pattern||null,st:v.st||null,en:v.en||null,b:v.b||null};});
         if(rows.length)await dbUpsert("shifts",rows);
       }else if(key==="v13_rq"){
-        await dbDeleteAll("reqs","id=gte.0");
         if(data&&data.length)await dbUpsert("reqs",data);
       }else if(key==="v13_ch"){
-        await dbDeleteAll("changes","id=gte.0");
         if(data&&data.length)await dbUpsert("changes",data.map(c=>({id:c.id,data:c})));
       }else if(key==="v13_dp"){
-        await dbDeleteAll("day_pat","date=neq.____");
         const rows=Object.entries(data).map(([date,pat])=>({date,pat:pat||""}));
         if(rows.length)await dbUpsert("day_pat",rows);
       }else if(key==="v13_dm"){
-        await dbDeleteAll("day_memo","date=neq.____");
         const rows=Object.entries(data).map(([date,memo])=>({date,memo}));
         if(rows.length)await dbUpsert("day_memo",rows);
       }else if(key==="v13_pb"){
-        await dbDeleteAll("pub_months","ym=neq.____");
         if(data&&data.length)await dbUpsert("pub_months",data.map(ym=>({ym})));
       }
       console.log("DB保存完了:",key);
@@ -852,7 +857,7 @@ function AdjustPage({members,setMembers,shifts,setShifts,reqs,dayPat,setDayPat,d
         </div>
         <div className="mf">
           <button className="btn bg" onClick={()=>setShModal(false)}>キャンセル</button>
-          <button className="btn bp" disabled={!shMsg} onClick={()=>{try{if(navigator.clipboard)navigator.clipboard.writeText(shMsg);}catch(e){}toast_("送信しました");setShModal(false);}}>送信</button>
+          <button className="btn bp" disabled={!shMsg} onClick={()=>{(()=>{const _t=shMsg;if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(_t).catch(()=>{const _e=document.createElement("textarea");_e.value=_t;_e.style.cssText="position:fixed;opacity:0";document.body.appendChild(_e);_e.select();try{document.execCommand("copy");}catch(ex){}document.body.removeChild(_e);});}else{const _e=document.createElement("textarea");_e.value=_t;_e.style.cssText="position:fixed;opacity:0";document.body.appendChild(_e);_e.select();try{document.execCommand("copy");}catch(ex){}document.body.removeChild(_e);}})(toast_("送信しました");setShModal(false);}}>送信</button>
         </div>
       </div>
     </div>)}
@@ -878,7 +883,7 @@ function AdjustPage({members,setMembers,shifts,setShifts,reqs,dayPat,setDayPat,d
             <div className="mf">
               <button className="btn bg" onClick={()=>setSelNotif(null)}>← 戻る</button>
               <button className="btn bg" onClick={()=>setNotifModal(false)}>キャンセル</button>
-              <button className="btn bp" onClick={()=>{try{if(navigator.clipboard)navigator.clipboard.writeText(notifMsg);}catch(e){}toast_("送信しました");setNotifModal(false);}}>送信</button>
+              <button className="btn bp" onClick={()=>{(()=>{const _t=notifMsg;if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(_t).catch(()=>{const _e=document.createElement("textarea");_e.value=_t;_e.style.cssText="position:fixed;opacity:0";document.body.appendChild(_e);_e.select();try{document.execCommand("copy");}catch(ex){}document.body.removeChild(_e);});}else{const _e=document.createElement("textarea");_e.value=_t;_e.style.cssText="position:fixed;opacity:0";document.body.appendChild(_e);_e.select();try{document.execCommand("copy");}catch(ex){}document.body.removeChild(_e);}})(toast_("送信しました");setNotifModal(false);}}>送信</button>
             </div>
           </>
         )}
@@ -944,7 +949,7 @@ function ChangePage({changes,setChanges,shifts,members,pats,isAdmin,toast_}){
         </div>
         <div className="mf">
           <button className="btn bg" onClick={()=>{setShowSlk(false);setSlkM(null);}}>閉じる</button>
-          <button className="btn bp" onClick={()=>{try{if(navigator.clipboard)navigator.clipboard.writeText(slkM||"");}catch(e){}toast_("送信しました");setShowSlk(false);setSlkM(null);}}>送信</button>
+          <button className="btn bp" onClick={()=>{(()=>{const _t=slkM||"";if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(_t).catch(()=>{const _e=document.createElement("textarea");_e.value=_t;_e.style.cssText="position:fixed;opacity:0";document.body.appendChild(_e);_e.select();try{document.execCommand("copy");}catch(ex){}document.body.removeChild(_e);});}else{const _e=document.createElement("textarea");_e.value=_t;_e.style.cssText="position:fixed;opacity:0";document.body.appendChild(_e);_e.select();try{document.execCommand("copy");}catch(ex){}document.body.removeChild(_e);}})(toast_("送信しました");setShowSlk(false);setSlkM(null);}}>送信</button>
         </div>
       </div>
     </div>)}
