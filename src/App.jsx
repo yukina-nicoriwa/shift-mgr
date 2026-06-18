@@ -245,8 +245,42 @@ export default function App(){
   const [pub,setPR]=useState(()=>ld("v13_pb",DEMO.pub||[]));
   const [pats,setPatsR]=useState(()=>ld("v13_pt",DEFAULT_PT));
   const [notifs,setNotifsR]=useState(()=>ld("v13_nf",DEFAULT_NOTIFS));
-  const mk=(k,raw)=>v=>{if(typeof v==="function"){raw(prev=>{const n=v(prev);sv(k,n);return n;});}else{sv(k,v);raw(v);}};
-  const setMembers=mk("v13_mb",setMR),setShifts=mk("v13_sh",setSR),setReqs=mk("v13_rq",setRR);
+  const mk=(k,raw)=>v=>{
+    if(typeof v==="function"){raw(prev=>{const n=v(prev);sv(k,n);saveToDb(k,n);return n;});}
+    else{sv(k,v);raw(v);saveToDb(k,v);}
+  };
+
+  // Supabaseへの保存処理
+  const saveToDb=async(key,data)=>{
+    if(!SUPABASE_URL||!SUPABASE_KEY)return;
+    try{
+      if(key==="v13_mb"){
+        await supa("members?id=neq.null",{method:"DELETE"});
+        if(data.length)await dbUpsert("members",data.map((m,i)=>({id:m.id,name:m.name,tier:m.tier,sort_order:i})));
+      }else if(key==="v13_sh"){
+        await supa("shifts?id=neq.null",{method:"DELETE"});
+        const rows=Object.entries(data).map(([k,v])=>{const[mb_id,date]=k.split("_");return{id:k,mb_id,date,pattern:v.pattern||null,st:v.st||null,en:v.en||null,b:v.b||null};});
+        if(rows.length)await dbUpsert("shifts",rows);
+      }else if(key==="v13_rq"){
+        await supa("reqs?id=gte.0",{method:"DELETE"});
+        if(data.length)await dbUpsert("reqs",data);
+      }else if(key==="v13_ch"){
+        await supa("changes?id=gte.0",{method:"DELETE"});
+        if(data.length)await dbUpsert("changes",data.map(c=>({id:c.id,data:c})));
+      }else if(key==="v13_dp"){
+        await supa("day_pat?date=neq.null",{method:"DELETE"});
+        const rows=Object.entries(data).map(([date,pat])=>({date,pat:pat||""}));
+        if(rows.length)await dbUpsert("day_pat",rows);
+      }else if(key==="v13_dm"){
+        await supa("day_memo?date=neq.null",{method:"DELETE"});
+        const rows=Object.entries(data).map(([date,memo])=>({date,memo}));
+        if(rows.length)await dbUpsert("day_memo",rows);
+      }else if(key==="v13_pb"){
+        await supa("pub_months?ym=neq.null",{method:"DELETE"});
+        if(data.length)await dbUpsert("pub_months",data.map(ym=>({ym})));
+      }
+    }catch(e){console.log("DB保存エラー",e);}
+  };  const setMembers=mk("v13_mb",setMR),setShifts=mk("v13_sh",setSR),setReqs=mk("v13_rq",setRR);
   const setChanges=mk("v13_ch",setCR),setDayPat=mk("v13_dp",setDP),setDayMemo=mk("v13_dm",setDM);
   const setPub=mk("v13_pb",setPR),setPats=mk("v13_pt",setPatsR),setNotifs=mk("v13_nf",setNotifsR);
   const toast_=(msg,type)=>{setToast({msg,type:type||"ok"});setTimeout(()=>setToast(null),3200);};
