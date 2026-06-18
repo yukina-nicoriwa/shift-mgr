@@ -861,7 +861,7 @@ function AdjustPage({members,setMembers,shifts,setShifts,reqs,dayPat,setDayPat,d
         </div>
         <div className="mf">
           <button className="btn bg" onClick={()=>setShModal(false)}>キャンセル</button>
-          <button className="btn bp" disabled={!shMsg} onClick={()=>{copyText(shMsg)toast_("送信しました");setShModal(false);}}>送信</button>
+          <button className="btn bp" disabled={!shMsg} onClick={()=>{copyText(shMsg);toast_("送信しました");setShModal(false);}}>送信</button>
         </div>
       </div>
     </div>)}
@@ -887,7 +887,7 @@ function AdjustPage({members,setMembers,shifts,setShifts,reqs,dayPat,setDayPat,d
             <div className="mf">
               <button className="btn bg" onClick={()=>setSelNotif(null)}>← 戻る</button>
               <button className="btn bg" onClick={()=>setNotifModal(false)}>キャンセル</button>
-              <button className="btn bp" onClick={()=>{copyText(notifMsg)toast_("送信しました");setNotifModal(false);}}>送信</button>
+              <button className="btn bp" onClick={()=>{copyText(notifMsg);toast_("送信しました");setNotifModal(false);}}>送信</button>
             </div>
           </>
         )}
@@ -953,7 +953,7 @@ function ChangePage({changes,setChanges,shifts,members,pats,isAdmin,toast_}){
         </div>
         <div className="mf">
           <button className="btn bg" onClick={()=>{setShowSlk(false);setSlkM(null);}}>閉じる</button>
-          <button className="btn bp" onClick={()=>{copyText(slkM||"")toast_("送信しました");setShowSlk(false);setSlkM(null);}}>送信</button>
+          <button className="btn bp" onClick={()=>{copyText(slkM||"");toast_("送信しました");setShowSlk(false);setSlkM(null);}}>送信</button>
         </div>
       </div>
     </div>)}
