@@ -275,7 +275,7 @@ export default function App(){
         if(rows.length)await dbUpsert("shifts",rows);
       }else if(k==="v13_rq"){
         await supabase.from("reqs").delete().gte("id",0);
-        if(d.length)await dbUpsert("reqs",d);
+        if(d.length)await dbUpsert("reqs",d.map(r=>({id:r.id,mb_id:r.mbId,mb_name:r.mbName,date:r.date,pat:r.pat,st:r.st,en:r.en,note:r.note,at:r.at})));
       }else if(k==="v13_ch"){
         await supabase.from("changes").delete().gte("id",0);
         if(d.length)await dbUpsert("changes",d.map(c=>({id:c.id,data:c})));
@@ -304,6 +304,25 @@ export default function App(){
   const toast_=(msg,type)=>{setToast({msg,type:type||"ok"});setTimeout(()=>setToast(null),3200);};
 
   const unlock=()=>{if(pwIn===PW){setAdmin(true);setTab("admin");setPwM(false);setPwIn("");setPwErr(false);toast_("ログインしました");}else setPwErr(true);};
+  useEffect(()=>{
+    if(!supabase)return;
+    (async()=>{
+      try{
+        const[mbs,shs,rqs,chs,dps,dms,pbs]=await Promise.all([
+          dbGet("members"),dbGet("shifts"),dbGet("reqs"),dbGet("changes"),
+          dbGet("day_pat"),dbGet("day_memo"),dbGet("pub_months")
+        ]);
+        if(mbs.length)setMR([...mbs].sort((a,b)=>(a.sort_order||0)-(b.sort_order||0)).map(m=>({id:m.id,name:m.name,tier:m.tier})));
+        if(shs.length){const o={};shs.forEach(s=>{o[s.mb_id+"_"+s.date]={pattern:s.pattern,st:s.st,en:s.en,b:s.b};});setSR(o);}
+        if(rqs.length)setRR(rqs.map(r=>({id:r.id,mbId:r.mb_id,mbName:r.mb_name,date:r.date,pat:r.pat,st:r.st,en:r.en,note:r.note,at:r.at})));
+        if(chs.length)setCR(chs.map(c=>c.data));
+        if(dps.length){const o={};dps.forEach(d=>{o[d.date]=d.pat;});setDP(o);}
+        if(dms.length){const o={};dms.forEach(d=>{o[d.date]=d.memo;});setDM(o);}
+        if(pbs.length)setPR(pbs.map(p=>p.ym));
+        console.log("DB loaded OK");
+      }catch(e){console.error("DB load error:",e);}
+    })();
+  },[]);
   const DY=today.getFullYear(),DM=today.getMonth()+1;
   const NM=DM===12?1:DM+1,NY=DM===12?DY+1:DY;
   const sh={members,setMembers,shifts,setShifts,reqs,setReqs,changes,setChanges,dayPat,setDayPat,dayMemo,setDayMemo,pub,setPub,pats,setPats,notifs,setNotifs,isAdmin,toast_,today};
