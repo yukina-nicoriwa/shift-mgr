@@ -119,7 +119,12 @@ const callAI=async(prompt,max)=>{
 // showSend=true の画面のみ「送信」ボタンを表示
 function SlkPreview({msg,setMsg,dest,loading,onClose,showSend}){
   if(!loading&&!msg)return null;
-  const copy=()=>{const t=msg||"";try{navigator.clipboard&&navigator.clipboard.writeText(t);}catch(e){}};
+  const copy=()=>{
+    const t=msg||"";
+    if(navigator.clipboard&&window.isSecureContext){
+      navigator.clipboard.writeText(t).catch(()=>{const el=document.createElement("textarea");el.value=t;el.style.cssText="position:fixed;opacity:0";document.body.appendChild(el);el.select();document.execCommand("copy");document.body.removeChild(el);});
+    }else{const el=document.createElement("textarea");el.value=t;el.style.cssText="position:fixed;opacity:0";document.body.appendChild(el);el.select();document.execCommand("copy");document.body.removeChild(el);}
+  };
   return(<div className="card" style={{marginBottom:10,borderColor:"#bfdbfe"}}>
     <div style={{fontSize:11,color:"#64748b",marginBottom:4}}>💬 {dest}</div>
     {loading
@@ -424,11 +429,7 @@ function RecruitPage({members,reqs,setReqs,dayPat,pats,toast_,today,iY,iM}){
     const nr=dates.map((date,i)=>{const f=draft[date];const p=ptMap[f.pat];return({id:now+i,mbId:myId,mbName:mem.name,date,pat:f.isC?"CUSTOM":f.pat,st:f.isC?f.st:(p?p.s:""),en:f.isC?f.en:(p?p.e:""),note:f.note||"",at:new Date().toISOString()});});
     setReqs(prev=>prev.filter(r=>!(r.mbId===myId&&r.date.startsWith(ym))).concat(nr));
     toast_(`${mem.name}さんの${month}月分（${nr.length}日）を提出しました！`);
-    setSlkL(true);
-    const sum=nr.map(r=>r.date.slice(5)+": "+(r.pat==="CUSTOM"?r.st+"〜"+r.en:r.pat)).join("\n");
-    try{setSlkM(await callAI(`以下のシフト希望を管理者へのDM通知文に変換。送信テキストのみ出力。前置き不要。\n名前:${mem.name}\n内容:\n${sum}`,250));}
-    catch(_){setSlkM(`${mem.name}より${month}月分（${nr.length}日）が提出されました。\n\n${sum}`);}
-    setSlkL(false);
+    // Slack通知は自動送信なし（管理者がシフト調整画面から確認）
   };
   const mem=members.find(m=>m.id===myId),inputDays=Object.keys(draft).length;
   return(<div>
@@ -441,7 +442,6 @@ function RecruitPage({members,reqs,setReqs,dayPat,pats,toast_,today,iY,iM}){
         ))}
       </div>
     </div>
-    <SlkPreview msg={slkM} setMsg={setSlkM} dest="管理者へのDM" loading={slkL} onClose={()=>setSlkM(null)} showSend={true}/>
     <div style={{display:"flex",gap:5,marginBottom:12,flexWrap:"wrap"}}>
       {pats.map(p=>(
         <div key={p.key} style={{display:"flex",alignItems:"center",gap:4,background:p.bg,border:`1px solid ${p.bd}`,borderRadius:7,padding:"3px 8px"}}>
@@ -564,10 +564,11 @@ function ConfirmedPage({members,shifts,dayPat,dayMemo,pub,pats,isAdmin,iY,iM}){
   </div>);
   return(<div>
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,gap:8,flexWrap:"wrap"}}>
-      <div><h2 style={{fontSize:15,fontWeight:800}}>✅ 確定シフト</h2>
-        <span className="bdg" style={{background:isPub?"#dcfce7":"#f1f5f9",color:isPub?"#15803d":"#64748b",marginTop:3,display:"inline-block"}}>{isPub?"📢 全体公開中":"🔒 管理者のみ"}</span>
+      <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+        <h2 style={{fontSize:15,fontWeight:800}}>✅ 確定シフト</h2>
+        {navBar}
+        <span className="bdg" style={{background:isPub?"#dcfce7":"#f1f5f9",color:isPub?"#15803d":"#64748b"}}>{isPub?"📢 全体公開中":"🔒 管理者のみ"}</span>
       </div>
-      {navBar}
     </div>
     <div className="tw">
       <table className="st"><thead><tr>
